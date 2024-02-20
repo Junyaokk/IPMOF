@@ -39,7 +39,7 @@ To optimize the problem instance using the instance base, users need to specify 
 - *scenario num*: the number of scenarios within a problem instance.
 - *data dir*: the directory for storing the task results.
 
-The default parameters for these algorithms are specified in 'default_paras.py'. To introduce the implementation of three algorithms, they are run with the same parameters set. However, this does not guarantee the optimality of the results. For users, we provide a summary of the recommended parameter intervals and values. Further details can be found in Appendix D of this paper.
+The default parameters for these algorithms are specified in 'default_paras.py'. To introduce the implementation of three algorithms, they are run with the same parameters set. However, this does not guarantee the optimality of the results. For users, we provide a summary of the recommended parameter intervals and values. Further details can be found in Appendix D of our paper.
 
 The relative test functions have been encapsulated, readers can read them in detail. For example, we create three tasks from above instance base for PBS, P\&K and hybrid algorithms.
 
