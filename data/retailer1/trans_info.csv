@@ -1,0 +1,10 @@
+type,from,to,coef,intercept
+transshipment,RDC001,FDC001,2.4,223.5
+fulfillment,FDC001,Region001,1,6.3
+fulfillment,RDC001,Region001,3.9,8.4
+fulfillment,FDC001,Region002,1.9,12.7
+fulfillment,RDC001,Region002,6.5,7.9
+fulfillment,FDC001,Region003,1,6.3
+fulfillment,RDC001,Region003,12.7,14.5
+fulfillment,FDC001,Region004,1.9,15.7
+fulfillment,RDC001,Region004,10.7,15.1
