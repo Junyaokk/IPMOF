@@ -33,7 +33,6 @@ def get_supply_info(region_info_df):
 def get_trans_info(trans_info_df, rdc_id, fdc_id):
     first_trans_df = trans_info_df[(trans_info_df['type'] == 'transshipment') & (trans_info_df['to'] == fdc_id)]
     second_trans_df = trans_info_df[(trans_info_df['type'] == 'fulfillment') & (trans_info_df['from'].isin([rdc_id, fdc_id]))]
-
     first_trans_dict = {rdc_id: {fdc_id: {'coef': first_trans_df['coef'].values[0], 
                                           'intercept': first_trans_df['intercept'].values[0]}}}
     second_trans_dict = {dc: {row['to']: {'coef': row['coef'], 

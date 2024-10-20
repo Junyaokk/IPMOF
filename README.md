@@ -28,18 +28,20 @@ instance_base = InstanceBase(retailer_id='retailer1',
 To optimize the problem instance using the instance base, users need to specify the following parameters to create a task.
 
 - *task_id*: the unique index of the task.
-- *need solver*: whether the Gurobi solver should be invoked to compute the final cost based on the solution obtained from our algorithms (True or False).
-- *need opt*: whether the Gurobi solver should be invoked to optimize the problem (True or False).
-- *need benchmark*: whether the product-level benchmark should be invoked to optimize the problem (True or False).
-- *capacity constr*: whether the problem includes a capacity constraint (True or False).
-- *capacity type*: the type of capacity constraint, it can be 'warehouse' or 'assortment'.
-- *input fdc capacity*: the value of the single capacity constraint.
-- *both paras*: the values of the two types capacity constraints.
-- *algorithm paras*: the values of parameters in our algorithms.
-- *scenario num*: the number of scenarios within a problem instance.
-- *data dir*: the directory for storing the task results.
+- *instance_base*: prepared data.
+- *need_solver*: whether the Gurobi solver should be invoked to compute the final cost based on the solution obtained from our algorithms (True or False).
+- *need_opt*: whether the Gurobi solver should be invoked to optimize the problem (True or False).
+- *need_benchmark*: whether the product-level benchmark should be invoked to optimize the problem (True or False).
+- *capacity_constr*: whether the problem includes a capacity constraint (True or False).
+- *capacity_type*: the type of capacity constraint, it can be 'warehouse', 'assortment' or 'mixed'.
+- *input_fdc_capacity*: the value of the single capacity constraint.
+- *mixed_paras*: the values of the two types capacity constraints.
+- *algorithm_paras*: the values of parameters in our algorithms.
+- *scenario_num*: the number of scenarios within a problem instance.
+- *data_dir*: the directory for storing the task results.
+- *repooling_methods_type*: the specified demand aggregation strategy for repooling methods, it can be 'F' or 'T'.
 
-The default parameters for these algorithms are specified in 'default_paras.py'. To introduce the implementation of three algorithms, they are run with the same parameters set. However, this does not guarantee the optimality of the results. For users, we provide a summary of the recommended parameter intervals and values. Further details can be found in Appendix D of our paper.
+The default parameters for these algorithms are specified in 'default_paras.py'. To introduce the implementation of three algorithms, they are run with the same parameters set. However, this does not guarantee the optimality of the results. For users, we provide a summary of the recommended parameter intervals and values. Further details can be found in Appendix H of our paper.
 
 The relative test functions have been encapsulated, readers can read them in detail. For example, we create three tasks from above instance base for PBS, P\&K and hybrid algorithms.
 
@@ -52,7 +54,7 @@ from domain.task import Task
 random.seed(3407)
 ```
 
-- **PH-based Bounded Subgradient (PBS) Algorithm**
+- **PH-based Bounded Subgradient (PBS) Algorithm with Repooling Methods**
 
 
 ```python
@@ -63,11 +65,18 @@ task_pbs = Task(task_id='TASK_001',
                 need_solver=True,
                 need_opt=True,
                 need_benchmark=True,
+                scenario_num=5,
                 input_fdc_capacity=8000)
-task_pbs.run(scenario_num=10, data_dir='./data/retailer1/')
+task_pbs.run(data_dir='./data/retailer1/')
 ```
 
-- **PH-based Algorithm & Knapsack Problem with Dependencies (P&K)**
+
+```python
+task_pbs.run_repooling(repooling_methods_type='F')
+task_pbs.run_repooling(repooling_methods_type='T')
+```
+
+- **PH-based Algorithm & Knapsack Problem with Dependencies (P&K) with Repooling Methods**
 
 
 ```python
@@ -78,24 +87,37 @@ task_pnk = Task(task_id='TASK_002',
                 need_solver=True,
                 need_opt=True,
                 need_benchmark=True,
+                scenario_num=5,
                 input_fdc_capacity=190
                 )
-task_pnk.run(scenario_num=10, data_dir='./data/retailer1/')
+task_pnk.run(data_dir='./data/retailer1/')
 ```
 
-- **Hybrid Algorithm**
+
+```python
+task_pnk.run_repooling(repooling_methods_type='F')
+```
+
+- **Hybrid Algorithm with Repooling Methods**
 
 
 ```python
 task_hybrid = Task(task_id='TASK_003',
                 instance_base=instance_base, 
                 capacity_constr=True,
-                capacity_type='both',
+                capacity_type='mixed',
                 need_solver=True,
                 need_opt=True,
                 need_benchmark=True,
-                both_paras={'assortment': 95,
-                            'warehouse': 4000}
+                scenario_num=5,
+                mixed_paras={'assortment': 190,
+                            'warehouse': 5000}
                 )
-task_hybrid.run(scenario_num=10, data_dir='./data/retailer1/')
+task_hybrid.run(data_dir='./data/retailer1/')
+```
+
+
+```python
+task_hybrid.run_repooling(repooling_methods_type='F')
+task_hybrid.run_repooling(repooling_methods_type='T')
 ```

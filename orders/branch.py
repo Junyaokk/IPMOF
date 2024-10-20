@@ -16,13 +16,17 @@ class OrderBranch():
         self.second_cost_structure = source.second_cost_structure
         self.type_collector = source.type_collector
         self.type_element_dict = source.type_element_dict
+        self.type_element_pool = source.type_element_pool
         self.type_weight_dict = source.type_weight_dict
         self.type_map_dict = source.type_map_dict
+        self.type_size_dict = source.type_size_dict
         self.order_type_set = source.order_type_set
         self.sku_type_map_dict = source.sku_type_map_dict
         self.sku_sales_dict = source.sku_sales_dict
         self.generator_pool = source.generator_pool
         self.order_unit_pool = source.order_unit_pool
+        self.multi_item_type_set = source.multi_item_type_set
+        self.single_item_type_set = source.single_item_type_set
         self.avg_involved_size_dict = source.avg_involved_size_dict
         self.sum_max_first_cost = None
         self.sum_min_second_cost = None
@@ -48,7 +52,6 @@ class OrderBranch():
             scenario_sales_by_region[region_id] = _scenarios
             scenario_pool_by_region[region_id] = _type_pool
             
-            # useless below
             _temp_dict = {}
             for s_id, v in _scenarios.items():
                 _temp_dict[s_id] = {}
@@ -240,12 +243,13 @@ class OrderBranch():
         self.sum_max_first_cost = sum_max_first_cost
         self.complete_fdc_cost = self.sum_max_first_cost + self.sum_min_second_cost
 
+        self.complete_rdc_cost_dict = {s_id: 0 for s_id in self.scenario_set}
         self.complete_rdc_cost = 0
         for type_id in self.order_type_set:
             for s_id in self.scenario_set:
+                self.complete_rdc_cost_dict[s_id] += self.worst_second_cost[type_id][s_id]
                 self.complete_rdc_cost += self.scenario_prob_dict[s_id] * self.worst_second_cost[type_id][s_id]
-
-        self.UB_cost = min(self.complete_fdc_cost, self.complete_rdc_cost)
+        self.UB_cost = self.complete_rdc_cost
     
 
     def prepare_sorted_demand_info(self):
@@ -293,3 +297,16 @@ class OrderBranch():
                     max_demand = copy.deepcopy(cum_corr_demand_set[-1])
             for scen_id in self.scenario_set:
                 self.type_scen_demand_info[type_id][scen_id].append(max_demand)
+        
+        self.demand_lb_dict = {}
+        for type_id in self.order_type_set:
+            if type_id not in self.type_region_map.keys():
+                continue
+            else:
+                self.demand_lb_dict[type_id] = {}
+            region_index_set = [j+1 for j, val in enumerate(self.type_region_map[type_id]['diff']) if val != 0]
+            for scen_id in self.scenario_set:
+                corr_demand = sum([self.type_scen_demand_info[type_id][scen_id][region_index]
+                                for region_index in region_index_set])
+                self.demand_lb_dict[type_id][scen_id] = corr_demand
+        

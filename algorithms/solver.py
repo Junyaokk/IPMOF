@@ -17,19 +17,19 @@ class SOLVER():
         self.sku_sales_dict = orders.sku_sales_dict
         self.scenario_num = len(self.scenario_set)
         self.fdc_capacity = BigM
-        self.both_flag = False
-        self.both_paras = None
+        self.mixed_flag = False
+        self.mixed_paras = None
         
 
     def reset_capacity_info(self, input_capacity_val):
         self.fdc_capacity = input_capacity_val
 
     
-    def reset_both_info(self, both_paras=None):
-        self.both_flag = True
-        self.both_paras = both_paras
-        self.assortment_capacity = both_paras['assortment']
-        self.warehouse_capacity = both_paras['warehouse']
+    def reset_mixed_info(self, mixed_paras=None):
+        self.mixed_flag = True
+        self.mixed_paras = mixed_paras
+        self.assortment_capacity = mixed_paras['assortment']
+        self.warehouse_capacity = mixed_paras['warehouse']
         
         
     def solve_MIP_on_sku_given_scenario(self, input_scenario_set,
@@ -74,7 +74,7 @@ class SOLVER():
         model.addConstrs((X[i] <= S[i] for i in sku_set))
         model.addConstrs((S[i] <= M * X[i] for i in sku_set))
 
-        if self.both_flag:
+        if self.mixed_flag:
             model.addConstr((quicksum(X[i] for i in sku_set) <= self.assortment_capacity))
             model.addConstr((quicksum(S[i] for i in sku_set) <= self.warehouse_capacity))
         else:
@@ -118,8 +118,8 @@ class SOLVER():
 
         # get optimized solution
         Obj_cost = model.ObjVal
-
-        S_val = {(fdc_id, i): S[i].x for i in sku_set}
+        # todo: revise
+        S_val = {(fdc_id, i): round(S[i].x) for i in sku_set}
         X_val = {(fdc_id, i): X[i].x for i in sku_set}
         F_val = {fdc_id: F.x }
         sol = {'S': S_val, 'X': X_val, 'F': F_val}
@@ -129,8 +129,10 @@ class SOLVER():
     
 
     def solve_Model_on_sku_completely(self, assortment_flag=False):
-        sol, Obj_cost, Zk_val = self.solve_MIP_on_sku_given_scenario(self.scenario_set, 
-                                                             assortment_flag=assortment_flag)
+        # todo: revise
+        sol, _, _ = self.solve_MIP_on_sku_given_scenario(self.scenario_set, 
+                                                        assortment_flag=assortment_flag)
+        Obj_cost, Zk_val = self.solve_Model_given_placement_plan(placement_plan=sol)
         return sol, Obj_cost, Zk_val
 
 
@@ -271,7 +273,7 @@ class SOLVER():
         model.addConstr((quicksum(X[i] for i in sku_set) >= F))
         model.addConstr((quicksum(X[i] for i in sku_set) <= M * F))
 
-        if self.both_flag:
+        if self.mixed_flag:
             model.addConstr((quicksum(X[i] for i in sku_set) <= self.assortment_capacity))
             model.addConstr((quicksum(S[i] for i in sku_set) <= self.warehouse_capacity))
         else:

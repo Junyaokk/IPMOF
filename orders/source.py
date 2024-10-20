@@ -1,7 +1,8 @@
 import copy
+import random
 from utils import *
 from orders.generator import OrderUnit, OrderGenerator
-
+from default_paras import MULTT_ITEM_PROP, SINGLE_ITEM_PROP
 
 class OrderSource:
     def __init__(self, data_dir, scenario_unit):
@@ -22,21 +23,42 @@ class OrderSource:
         self.first_cost_structure, self.second_cost_structure = get_trans_info(trans_info_df, self.rdc_id, self.fdc_id)
         
         # preprocess order types from order data
+        # todo: determine corresponding select set
         self.type_collector, self.type_element_dict, self.type_weight_dict = self.order_type_separation()
+        self.type_element_pool = {type_id: list(info.keys()) for type_id, info in self.type_element_dict.items()}
         self.order_type_set = list(self.type_map_dict.values())
+        
+        # todo: add
+        self.multi_item_type_set = [type_id for type_id in self.order_type_set
+                       if (len(self.type_element_pool[type_id]) != 1) 
+                       or (sum(self.type_element_dict[type_id].values()) != 1)]
+        self.single_item_type_set = [type_id for type_id in self.order_type_set
+                            if (len(self.type_element_pool[type_id]) == 1) 
+                            & (sum(self.type_element_dict[type_id].values()) == 1)]
+        
+        self.selected_type_set = random.sample(self.multi_item_type_set, 
+                                    int(len(self.multi_item_type_set) * MULTT_ITEM_PROP)) \
+                                + random.sample(self.single_item_type_set, 
+                                    int(len(self.single_item_type_set) * SINGLE_ITEM_PROP))
+        self.data = self.data[self.data['ord_type'].isin(self.selected_type_set)]
+        self.type_element_dict = {key: val for key, val in self.type_element_dict.items() if key in self.selected_type_set}
+        self.type_weight_dict = {key: val for key, val in self.type_weight_dict.items() if key in self.selected_type_set}
+        self.type_element_pool = {key: val for key, val in self.type_element_pool.items() if key in self.selected_type_set}
+        self.order_type_set = list(set(self.order_type_set) & set(self.selected_type_set))
+        
         self.sku_type_map_dict = self.summary_sku_by_order_type()
         self.sku_sales_dict = self.data.groupby('sku_id')['sku_num'].sum().to_dict()
-        
+
         self.reverse_type_map_dict = {v: k for k, v in self.type_map_dict.items()}
-        self.type_size_dict = {k: len(v) for k, v in self.reverse_type_map_dict.items()}
+        self.type_size_dict = {k: sum(pool.values()) for k, pool in self.type_element_dict.items()}
         unique_data = self.data.drop_duplicates(subset=['ord_no'], inplace=False)
         self.type_sales_dict = unique_data['ord_type'].value_counts().to_dict()
 
         self.avg_involved_size_dict = {}
         for sku, type_set in self.sku_type_map_dict.items():
-            self.avg_involved_size_dict[sku] = np.mean([self.type_size_dict[type_id]
+            self.avg_involved_size_dict[sku] = np.mean([self.type_size_dict.get(type_id, 0)
                                                 for type_id in type_set
-                                                for _ in range(self.type_sales_dict[type_id]) 
+                                                for _ in range(self.type_sales_dict.get(type_id, 0)) 
                                                 if type_id in self.type_sales_dict.keys()])
 
 
@@ -73,7 +95,9 @@ class OrderSource:
             type_id = self.type_map_dict[type_info]
             for t in type_info:
                 sum_weight += self.sku_weight_dict[t[0]] * t[1]
-            type_weight_dict[type_id] = np.ceil(sum_weight)
+            # todo: revise
+            # type_weight_dict[type_id] = np.ceil(sum_weight)
+            type_weight_dict[type_id] = sum_weight
 
         return unique_order_type, type_element_dict, type_weight_dict
 
@@ -81,17 +105,20 @@ class OrderSource:
     def summary_sku_by_order_type(self):
         # summarize SKU by corresponding order type
         sku_type_map_dict = {sku: [] for sku in self.sku_set}
-        for type_info in self.type_collector:
-            type_id = self.type_map_dict[type_info]
-            for t in type_info:
-                sku_type_map_dict[t[0]].append(type_id)
+        # for type_info in self.type_collector:
+        #     type_id = self.type_map_dict[type_info]
+        #     for t in type_info:
+        #         sku_type_map_dict[t[0]].append(type_id)
+        for type_id, type_pool in self.type_element_pool.items():
+            for sku in type_pool:
+                sku_type_map_dict[sku].append(type_id)
         return sku_type_map_dict
 
 
     def get_orders_by_region_pool(self, generator_type='bootstrap'):
         # generate OrderUnit and OrderGenerator pools on regions
         generator_pool = {}
-        
+
         for region_id in self.region_set:
             if region_id in self.order_unit_pool:
                 order_unit_pool = self.order_unit_pool[region_id]

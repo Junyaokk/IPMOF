@@ -42,19 +42,24 @@ class Assortment_CapConstr():
         model.optimize()
 
         A_sol_on_sku = [sku for sku in self.candidate_sku_set if Xsku[sku].x > 0]
-        A_sol_on_type = [type_id for type_id in self.candidate_type_set if Xtype[type_id].x > 0]
+        # todo: revise
+        # A_sol_on_type = [type_id for type_id in self.candidate_type_set if Xtype[type_id].x > 0]
+        A_sol_on_type = [type_id for type_id in self.candidate_type_set 
+                         if set(self.orders.type_element_pool[type_id]).issubset(A_sol_on_sku)]
+
+        # print(self.complete_reduction_cost)
 
         
         return A_sol_on_sku, A_sol_on_type
     
     
-    def revise_sol_by_assortment(self, input_fdc, A_sol_on_sku, A_sol_on_type, sol_by_sku, sol_by_type):
+    def update_sol_by_knapsack(self, input_fdc, A_sol_on_sku, A_sol_on_type, sol_by_sku, sol_by_type):
         if sol_by_sku['F'][input_fdc] > 0:
             for sku in list(set(self.candidate_sku_set) - set(A_sol_on_sku)):
                 sol_by_sku['X'][(input_fdc, sku)] = 0
                 sol_by_sku['S'][(input_fdc, sku)] = 0
             for sku in A_sol_on_sku:
-                sol_by_sku['S'][(input_fdc, sku)] = sum([sol_by_type[type_id]['S']
+                sol_by_sku['S'][(input_fdc, sku)] = sum([sol_by_type[type_id]['S'] * self.orders.type_element_dict[type_id][sku]
                                        for type_id in self.orders.sku_type_map_dict[sku]
                                        if type_id in A_sol_on_type])
         return sol_by_sku
@@ -66,6 +71,7 @@ class Assortment_CapConstr():
         sol_by_type = self.pha.solved_type_sol
         sol_k_by_sku = self.pha.aggregate_sol_on_sku(input_fdc, sol_by_type)
         # summarize the candidate set from APH's solution
+        # todo: revise
         self.candidate_type_set = [type_id for type_id in self.order_type_set 
                                     if sol_by_type[type_id]['X'] == 1]
         self.candidate_sku_set = [sku for sku in self.sku_set 
@@ -74,7 +80,10 @@ class Assortment_CapConstr():
         self.pha.eva_reduction_cost_given_sol(input_fdc, sol=sol_by_type)
         self.complete_reduction_cost = self.pha.completely_reduction_set
         self.A_sol_on_sku, self.A_sol_on_type = self.solve_knapscak_problem()
-        self.final_sol_on_sku = self.revise_sol_by_assortment(input_fdc, 
+
+        self.final_sol_on_type = {type_id: sol if type_id in self.A_sol_on_type else {'S': 0, 'X': 0}
+                                  for type_id, sol in sol_by_type.items()}
+        self.final_sol_on_sku = self.update_sol_by_knapsack(input_fdc, 
                                                               A_sol_on_sku=self.A_sol_on_sku,
                                                               A_sol_on_type=self.A_sol_on_type,
                                                               sol_by_sku=sol_k_by_sku,

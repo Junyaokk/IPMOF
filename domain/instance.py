@@ -35,6 +35,3 @@ class Instance:
             self.capmanager = CapManager(orders=self.branch, solver=self.solver, pha=self.pha)
         else:
             self.capmanager = None
-    
-
-

@@ -1,6 +1,7 @@
 import random
 from collections import Counter
 from utils import *
+from default_paras import MULTT_ITEM_PROP
 
 
 class OrderUnit:
@@ -9,18 +10,18 @@ class OrderUnit:
         self.sku_set = self.data['sku_id'].unique().tolist()
         self.scenario_unit = scenario_unit
         self.region_id = region_id
-        self.get_origin_scenario(self.data)
+        self.get_origin_scenario()
 
-    def get_origin_scenario(self, data):
-        data['ord_date'] = pd.to_datetime(data['ord_date'])
+    def get_origin_scenario(self):
+        self.data['ord_date'] = pd.to_datetime(self.data['ord_date'])
         scenario_unit_timedelta = pd.to_timedelta(self.scenario_unit, unit='D')
-        data['scen_id'] = ((data['ord_date'] - data['ord_date'].min()) // scenario_unit_timedelta) + 1
-        data['scen_id'] = 'OS' + data['scen_id'].astype(str).str.zfill(3)
-        data.drop_duplicates(subset='ord_no', inplace=True)
-        scenario_order_type_dict = data.groupby('scen_id')['ord_type'].apply(list).to_dict()
-        scenario_sales_dict = {k: dict(Counter(v)) for k, v in scenario_order_type_dict.items()}
-        self.origin_scenario_set = list(scenario_sales_dict.keys())
-        self.origin_scenario_pool = scenario_order_type_dict
+        self.data['scen_id'] = ((self.data['ord_date'] - self.data['ord_date'].min()) // scenario_unit_timedelta) + 1
+        self.data['scen_id'] = 'OS' + self.data['scen_id'].astype(str).str.zfill(3)
+        self.data.drop_duplicates(subset='ord_no', inplace=True)
+        self.scenario_order_type_dict = self.data.groupby('scen_id')['ord_type'].apply(list).to_dict()
+        self.scenario_sales_dict = {k: dict(Counter(v)) for k, v in self.scenario_order_type_dict.items()}
+        self.origin_scenario_set = list(self.scenario_sales_dict.keys())
+        self.origin_scenario_pool = self.scenario_order_type_dict
 
 
 class OrderGenerator:
@@ -35,7 +36,6 @@ class OrderGenerator:
         else:
             raise AttributeError('Wrong generation type')
         return _scenarios
-
 
     def generate_size_sample_pool(self):
         # generate a sample pool based on order size data
@@ -71,9 +71,13 @@ class OrderGenerator:
         orders_num_by_scenario = [random.choice(self.size_sample_pool) for _ in range(scenario_num)]
         _scenarios = {}
         _type_pool = {}
+        # # todo: add
+        # self.complete_sample_set = []
         
         for index, orders_num in enumerate(orders_num_by_scenario):
             sample_set = bootstrap_step(size=orders_num)
+            # # todo: add one line
+            # self.complete_sample_set.extend(sample_set)
             counter = dict(Counter(sample_set))
             order_type_sales = {k: int(v) for k, v in counter.items()}
             _scenarios['S'+str(index+1).zfill(3)] = order_type_sales

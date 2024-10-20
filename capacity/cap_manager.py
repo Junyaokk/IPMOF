@@ -19,24 +19,25 @@ class CapManager:
     def invoke_CapConstr(self, input_capacity_val, 
                          cap_type='warehouse', 
                          algorithm_paras={}, 
-                         both_paras={}):
+                         mixed_paras={}):
         self.solver.reset_capacity_info(input_capacity_val)
         kwargs = {**algorithm_paras, 'orders': self.orders, 'solver': self.solver, 'pha': self.pha}
         cap_classes = {'warehouse': Warehouse_CapConstr, 'assortment': Assortment_CapConstr,
-                       'both': Both_CapConstr}
+                       'mixed': mixed_CapConstr}
         
         if cap_type in cap_classes:
             self.CapConstr = cap_classes[cap_type](**kwargs)
-            if cap_type == 'both':
-                self.CapConstr(both_paras=both_paras)
+            if cap_type == 'mixed':
+                self.CapConstr(mixed_paras=mixed_paras)
             else:
                 self.CapConstr()
-            self.opt_sol = self.CapConstr.final_sol_on_sku
+            self.opt_sol_on_sku = self.CapConstr.final_sol_on_sku
+            self.opt_sol_on_type = self.CapConstr.final_sol_on_type
         else:
             raise ValueError("Invalid cap_type. Supported values are 'warehouse' and 'assortment'.")
         
 
-class Both_CapConstr():
+class mixed_CapConstr():
     def __init__(self, orders: OrderBranch, 
                  solver: SOLVER,
                  pha: ProgressiveHedging):
@@ -49,8 +50,8 @@ class Both_CapConstr():
                                                          self.pha)
         
     
-    def __call__(self, both_paras):
-        self.solver.reset_both_info(both_paras)
+    def __call__(self, mixed_paras):
+        self.solver.reset_mixed_info(mixed_paras)
         self.assortment_capconstr.fdc_capacity = self.solver.assortment_capacity
         self.assortment_capconstr()
         self.select_type_set = self.assortment_capconstr.A_sol_on_type
@@ -68,20 +69,12 @@ class Both_CapConstr():
         self.warehouse_capconstr.fdc_capacity = self.solver.warehouse_capacity
         self.warehouse_capconstr()
 
-        self.opt_type_sol = {type_id: {'S': 0, 'X': 0} for type_id in self.orders.order_type_set}
-        self.opt_type_sol.update(self.warehouse_capconstr.final_opt_sol)
+        self.final_sol_on_type = {type_id: {'S': 0, 'X': 0} for type_id in self.orders.order_type_set}
+        self.final_sol_on_type.update(self.warehouse_capconstr.final_sol_on_type)
         
         self.final_sol_on_sku = self.pha.aggregate_sol_on_sku(self.fdc_id, 
-                                                              self.opt_type_sol)
+                                                              self.final_sol_on_type)
     
 
     def get_algorithm_paras(self):
-        return self.warehouse_capconstr.get_algorithm_paras()
-        
-        
-
-        
-    
-        
-        
-        
+        return self.warehouse_capconstr.get_algorithm_paras()      
