@@ -65,7 +65,7 @@ task_pbs = Task(task_id='TASK_001',
                 need_solver=True,
                 need_opt=True,
                 need_benchmark=True,
-                scenario_num=5,
+                scenario_num=10,
                 input_fdc_capacity=8000)
 task_pbs.run(data_dir='./data/retailer1/')
 ```
@@ -87,7 +87,7 @@ task_pnk = Task(task_id='TASK_002',
                 need_solver=True,
                 need_opt=True,
                 need_benchmark=True,
-                scenario_num=5,
+                scenario_num=10,
                 input_fdc_capacity=190
                 )
 task_pnk.run(data_dir='./data/retailer1/')
@@ -109,7 +109,7 @@ task_hybrid = Task(task_id='TASK_003',
                 need_solver=True,
                 need_opt=True,
                 need_benchmark=True,
-                scenario_num=5,
+                scenario_num=10,
                 mixed_paras={'assortment': 190,
                             'warehouse': 5000}
                 )
