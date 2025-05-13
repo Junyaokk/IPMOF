@@ -22,7 +22,6 @@ class Task():
                  need_benchmark=False,
                  input_fdc_capacity=None,
                  mixed_paras=None,
-                 # todo: add
                  scenario_num=None,
                  algorithm_paras: Optional[dict] = None):
         self.task_id = task_id
@@ -134,24 +133,20 @@ class Task():
         repooling_time = (datetime.datetime.now() - time0).total_seconds()
         
         pure_sol = repooling_optimizer.get_pure_sol()
-        mix_sol = repooling_optimizer.get_mix_sol()
         pure_cost, _ = self.instance.solver.solve_Model_given_placement_plan(pure_sol)
-        mix_cost, _ = self.instance.solver.solve_Model_given_placement_plan(mix_sol)
-        
+        pure_gap = None
+
         if self.opt_sol is not None:
             pure_gap = 100 * (pure_cost - self.opt_cost) / (self.ub_cost - self.opt_cost)
-            mix_gap = 100 * (mix_cost - self.opt_cost) / (self.ub_cost - self.opt_cost)
         
-        repooling_info = {
+        self.repooling_info = {
             'repooling_methods_type': repooling_methods_type,
             'repooling_time': repooling_time,
             'pure_cost': pure_cost,
-            'mix_cost': mix_cost,
             'pure_gap (%)': pure_gap,
-            'mix_gap (%)': mix_gap
         }
         
-        repooling_info_df = pd.DataFrame.from_dict(repooling_info, orient='index').reset_index()
+        repooling_info_df = pd.DataFrame.from_dict(self.repooling_info, orient='index').reset_index()
         repooling_info_df.columns = ['repooling_info', 'value']
         repooling_file_path = self.task_dir + str(self.task_id) + '_repooling_info.csv'
         header = not os.path.exists(repooling_file_path) or os.path.getsize(repooling_file_path) == 0
@@ -186,13 +181,9 @@ class Task():
         self.opt_time = (datetime.datetime.now() - time0).total_seconds()
         
         if self.algorithm_cost is not None:
-            # todo: revise
-            # self.opt_gap = ((self.algorithm_cost / self.opt_cost) - 1) * 100
             self.opt_gap = 100 * (self.algorithm_cost - self.opt_cost) / (self.ub_cost - self.opt_cost)
         
         if self.benchmark_cost is not None:
-            # todo: revise
-            # self.benchmark_gap = ((self.benchmark_cost / self.opt_cost) - 1) * 100
             self.benchmark_gap = 100 * (self.benchmark_cost - self.opt_cost) / (self.ub_cost - self.opt_cost)
 
     

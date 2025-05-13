@@ -96,6 +96,7 @@ task_pnk.run(data_dir='./data/retailer1/')
 
 ```python
 task_pnk.run_repooling(repooling_methods_type='F')
+task_pnk.run_repooling(repooling_methods_type='T')
 ```
 
 - **Hybrid Algorithm with Repooling Methods**

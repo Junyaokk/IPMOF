@@ -47,7 +47,10 @@ class Repooling_Opt():
                    (set(self.instance.branch.type_element_pool[type_id]).issubset(self.assortment_sku_set))
             ]
         else:  # demand_aggregation_startegy == 'T'
-            self.find_opt_mu()
+            if self.capacity_type == 'assortment':
+                self.opt_mu = 0
+            else:
+                self.find_opt_mu()
             self.selected_type_set = [
                 type_id for type_id in self.instance.branch.order_type_set
                 if self.input_sol_on_type[type_id]['X'] == 1
@@ -161,8 +164,3 @@ class Repooling_Opt():
 
     def get_pure_sol(self):
         return self.basic_repooling_sol_on_sku
-
-
-    def get_mix_sol(self):
-        return self.mean_sol(sol_a=self.input_sol_on_sku,
-                             sol_b=self.basic_repooling_sol_on_sku)
