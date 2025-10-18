@@ -39,7 +39,7 @@ class OrderBranch():
         self.worst_second_cost = {}
 
 
-    def generate_scenario_by_region(self, scenario_num=100):
+    def generate_scenario_by_region(self, scenario_num, random_state):
         scenario_sales_by_region = {}
         scenario_pool_by_region = {}
         order_info_per_type = {}
@@ -48,7 +48,7 @@ class OrderBranch():
         
         for region_id in self.region_set:
             generator = self.generator_pool[region_id]
-            _scenarios, _type_pool = generator(scenario_num=scenario_num)
+            _scenarios, _type_pool = generator(scenario_num=scenario_num, random_state=random_state)
             scenario_sales_by_region[region_id] = _scenarios
             scenario_pool_by_region[region_id] = _type_pool
             
@@ -87,15 +87,32 @@ class OrderBranch():
 
     def construct_cost_function(self):
         # declare the functions that compute the corresponding cost
-        self._func_cost_diff = lambda rdc, fc, region, u: round(max(0, 
+        # self._func_cost_diff = lambda rdc, fc, region, u: round(max(0, 
+        #     self.second_cost_structure[rdc][region]['intercept'] - self.second_cost_structure[fc][region]['intercept'] +
+        #     (self.second_cost_structure[rdc][region]['coef'] - self.second_cost_structure[fc][region]['coef']) * u), 2)
+
+        # self._func_cost_rdc = lambda rdc, region, u: round(self.second_cost_structure[rdc][region]['intercept'] +
+        #     self.second_cost_structure[rdc][region]['coef'] * u, 2)
+
+        # self._func_cost_fdc = lambda fdc, region, u: round(self.second_cost_structure[fdc][region]['intercept'] +
+        #     self.second_cost_structure[fdc][region]['coef'] * u, 2)
+        self._func_cost_diff = self._calculate_cost_diff
+        self._func_cost_rdc = self._calculate_cost_rdc
+        self._func_cost_fdc = self._calculate_cost_fdc
+    
+    def _calculate_cost_diff(self, rdc, fc, region, u):
+        return round(max(0,
             self.second_cost_structure[rdc][region]['intercept'] - self.second_cost_structure[fc][region]['intercept'] +
             (self.second_cost_structure[rdc][region]['coef'] - self.second_cost_structure[fc][region]['coef']) * u), 2)
 
-        self._func_cost_rdc = lambda rdc, region, u: round(self.second_cost_structure[rdc][region]['intercept'] +
-            self.second_cost_structure[rdc][region]['coef'] * u, 2)
+    def _calculate_cost_rdc(self, rdc, region, u):
+        return round(self.second_cost_structure[rdc][region]['intercept'] +
+                     self.second_cost_structure[rdc][region]['coef'] * u, 2)
 
-        self._func_cost_fdc = lambda fdc, region, u: round(self.second_cost_structure[fdc][region]['intercept'] +
-            self.second_cost_structure[fdc][region]['coef'] * u, 2)
+    def _calculate_cost_fdc(self, fdc, region, u):
+        return round(self.second_cost_structure[fdc][region]['intercept'] +
+                     self.second_cost_structure[fdc][region]['coef'] * u, 2)
+
 
 
     def transform_data_to_order(self, order_info_per_type):
@@ -126,12 +143,13 @@ class OrderBranch():
         return scenario_dict, order_info_per_sku_dict, order_set_per_sku_dict, sku_demand_dict
 
 
-    def generate_random_scenario(self, scenario_num=100):
+    def generate_random_scenario(self, scenario_num, random_state):
         self.scenario_num = scenario_num
         scenario_prob = 1 / scenario_num
         self.scenario_set = ['S'+str(index+1).zfill(3) for index in range(scenario_num)]
         self.scenario_prob_dict = {s_id: scenario_prob for s_id in self.scenario_set}
-        scenario_sales_by_region, scenario_pool_by_region, order_info_per_type = self.generate_scenario_by_region(scenario_num=scenario_num)
+        scenario_sales_by_region, scenario_pool_by_region, order_info_per_type = self.generate_scenario_by_region(scenario_num=scenario_num,
+                                                                                                                  random_state=random_state)
         type_sales_dict = self.aggregate_sales_by_order_type(scenario_sales_by_region)
         scenario_dict, order_info_per_sku_dict, \
         order_set_per_sku_dict, sku_demand_dict = self.transform_data_to_order(order_info_per_type)
@@ -150,6 +168,23 @@ class OrderBranch():
         self.compute_UB_cost()
         self.count_orders_size()
         self.prepare_sorted_demand_info()
+        self.calculate_bigm()
+    
+
+    def calculate_bigm(self):
+        self.bigm_per_sku = {i: max([sum(self.type_element_dict[type_id][i] 
+                                * self.scenario_sales_by_region[region_id][scen_id][type_id]
+                                for region_id in self.region_set
+                                for type_id in set(self.scenario_pool_by_region[region_id][scen_id]) 
+                                                    & set(self.sku_type_map_dict[i]))
+                                for scen_id in self.scenario_set])
+                            for i in self.sku_set}
+        
+        self.bigm_per_type = {type_id: max([sum(
+                                self.scenario_sales_by_region[region_id][scen_id].get(type_id, 0)
+                                for region_id in self.region_set)
+                                for scen_id in self.scenario_set])
+                            for type_id in self.order_type_set}
 
 
     def count_orders_size(self):

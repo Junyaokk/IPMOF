@@ -4,6 +4,9 @@ from default_paras import *
 from utils import *
 import numpy as np
 import copy
+import concurrent.futures
+import os
+import math
 
 class ProgressiveHedging():
     def __init__(self, orders: OrderBranch, 
@@ -23,16 +26,26 @@ class ProgressiveHedging():
         self.sku_set = orders.sku_set
         self.scenario_set = solver.scenario_set
         self.scenario_prob = solver.scenario_prob_dict
+        
+        # 预计算并缓存概率数组
+        self.scenario_probs = np.array([solver.scenario_prob_dict[s] for s in self.scenario_set])
+        
         self.order_type_set = orders.order_type_set
         self.sku_type_map_dict = orders.sku_type_map_dict
         self.reverse_type_map_dict = {v: k for k, v in orders.type_map_dict.items()}
         self.type_size_dict = {k: len(v) for k, v in self.reverse_type_map_dict.items()}
+        
+        # 预计算并缓存type相关数据
+        self.type_weights = np.array([orders.type_weight_dict[t] for t in self.order_type_set])
+        self.type_sizes = np.array([self.type_size_dict[t] for t in self.order_type_set])
+        
         self.type_sales_dict = orders.type_sales_dict
         self.type_weight_dict = orders.type_weight_dict
         self.UB_cost = self.orders.UB_cost
         self.complete_rdc_cost = self.orders.complete_rdc_cost
         self.demand_diff_pairs = self.orders.demand_diff_pairs
         self.worst_second_cost = self.orders.worst_second_cost
+        
         self.init_penalty_parm_x = init_penalty_parm_x
         self.init_penalty_parm_s = init_penalty_parm_s 
         self.penalty_multiplier = penalty_multiplier
@@ -40,78 +53,113 @@ class ProgressiveHedging():
         self.max_terminate_s = max_terminate_s
         self.max_tolerance_s = max_tolerance_s
         self.max_tolerance_x = max_tolerance_x
+        
         self.penalty_flag = False
         self.penalty_parm_x_dict = None
         self.penalty_parm_s_dict = None
         self.final_sol = {}
         self.conv_record_set = []
-        self.zero_dual = {s_id: {'X': {type_id: 0 for type_id in self.order_type_set},
-                              'S': {type_id: 0 for type_id in self.order_type_set}}
-                              for s_id in self.scenario_set}
-        self.zero_sol = {'X': {type_id: 0 for type_id in self.order_type_set},
-                        'S': {type_id: 0 for type_id in self.order_type_set}}
-        self.second_reduction_dict = {s_id: {type_id: 0 for type_id in self.order_type_set} 
-                              for s_id in self.scenario_set}
-        self.completely_reduction_set = {type_id: 0 for type_id in self.order_type_set}
-        self.get_type_composition_by_sku()
         
+        # 使用numpy数组优化初始化
+        self.init_zero_structures()
+        self.get_type_composition_by_sku()
+    
+    def init_zero_structures(self):
+        """使用numpy数组初始化数据结构"""
+        n_scenarios = len(self.scenario_set)
+        n_types = len(self.order_type_set)
+        
+        # 初始化dual和solution结构
+        self.zero_dual_x = np.zeros((n_scenarios, n_types))
+        self.zero_dual_s = np.zeros((n_scenarios, n_types))
+        self.zero_sol_x = np.zeros(n_types)
+        self.zero_sol_s = np.zeros(n_types)
+        
+        # 转换为字典格式
+        self.zero_dual = {s_id: {'X': {}, 'S': {}} for s_id in self.scenario_set}
+        self.zero_sol = {'X': {}, 'S': {}}
+        
+        for i, s_id in enumerate(self.scenario_set):
+            for j, t_id in enumerate(self.order_type_set):
+                self.zero_dual[s_id]['X'][t_id] = 0
+                self.zero_dual[s_id]['S'][t_id] = 0
+                if i == 0:
+                    self.zero_sol['X'][t_id] = 0
+                    self.zero_sol['S'][t_id] = 0
+        
+        # 初始化reduction相关结构
+        self.second_reduction_dict = {s_id: {type_id: 0 for type_id in self.order_type_set} 
+                                    for s_id in self.scenario_set}
+        self.completely_reduction_set = {type_id: 0 for type_id in self.order_type_set}
+
 
     def update_dual_value_per_iteration(self, sol, sol_by_scenario, last_dual):
-        dual = {s_id: {'X': {}, 'S': {}} for s_id in self.scenario_set}
-        init_flag = len(last_dual) == 0
+        """使用numpy向量化计算更新dual values"""
+        n_scenarios = len(self.scenario_set)
+        n_types = len(self.unsolved_type_set)
         
-        for s_id in self.scenario_set:
-            for type_id in self.unsolved_type_set:
-                penalty_parm_x = self.penalty_parm_x_dict[type_id]
-                penalty_parm_s = self.penalty_parm_s_dict[type_id]
-
-                add_dual_x = penalty_parm_x * (sol_by_scenario[s_id]['X'][type_id] - sol['X'][type_id])
-                dual[s_id]['X'][type_id] = last_dual[s_id]['X'][type_id] + add_dual_x if not init_flag else add_dual_x
-
-                add_dual_s = penalty_parm_s * (sol_by_scenario[s_id]['S'][type_id] - sol['S'][type_id])
-                dual[s_id]['S'][type_id] = last_dual[s_id]['S'][type_id] + add_dual_s if not init_flag else add_dual_s
-
+        # 构建numpy数组
+        penalty_x = np.array([self.penalty_parm_x_dict[t] for t in self.unsolved_type_set])
+        penalty_s = np.array([self.penalty_parm_s_dict[t] for t in self.unsolved_type_set])
+        
+        sol_x = np.zeros((n_scenarios, n_types))
+        sol_s = np.zeros((n_scenarios, n_types))
+        target_x = np.array([sol['X'][t] for t in self.unsolved_type_set])
+        target_s = np.array([sol['S'][t] for t in self.unsolved_type_set])
+        
+        # 填充数组
+        for i, s_id in enumerate(self.scenario_set):
+            for j, t_id in enumerate(self.unsolved_type_set):
+                sol_x[i,j] = sol_by_scenario[s_id]['X'][t_id]
+                sol_s[i,j] = sol_by_scenario[s_id]['S'][t_id]
+        
+        # 向量化计算
+        add_dual_x = penalty_x[None,:] * (sol_x - target_x[None,:])
+        add_dual_s = penalty_s[None,:] * (sol_s - target_s[None,:])
+        
+        # 转回字典格式
+        dual = {s_id: {'X': {}, 'S': {}} for s_id in self.scenario_set}
+        for i, s_id in enumerate(self.scenario_set):
+            for j, t_id in enumerate(self.unsolved_type_set):
+                if len(last_dual) > 0:
+                    dual[s_id]['X'][t_id] = last_dual[s_id]['X'][t_id] + add_dual_x[i,j]
+                    dual[s_id]['S'][t_id] = last_dual[s_id]['S'][t_id] + add_dual_s[i,j]
+                else:
+                    dual[s_id]['X'][t_id] = add_dual_x[i,j]
+                    dual[s_id]['S'][t_id] = add_dual_s[i,j]
+        
         return dual
     
 
     def eva_second_cost_by_type(self, type_id, scenario_id, sol):
-        # for each order type, evaluate the fulfilment cost in the second stage
+        """优化第二阶段成本计算"""
         sol_s = sol[type_id]['S']
         worst_second_cost = self.worst_second_cost[type_id][scenario_id]
-        demand_diff_pairs = self.demand_diff_pairs[type_id][scenario_id]
+        
         if sol_s == 0:
             return worst_second_cost
+            
+        demand_diff_pairs = self.demand_diff_pairs[type_id][scenario_id]
+        corr_demand_set = np.array(demand_diff_pairs['demand'])
+        corr_diff_set = np.array(demand_diff_pairs['diff'])
         
-        def _allocate_s(lst, total):
-            cum_sum = 0
-            index = 0
-            remain = 0
-            for i, num in enumerate(lst):
-                cum_sum += num
-                if cum_sum >= total:
-                    index = i + 1
-                    if index > 1:
-                        remain = total - sum(lst[:index-1])
-                    break
-            if cum_sum < total:
-                index = -1
-                remain = total
-            if index == 1:
-                remain = total
-            return index, remain
+        # 使用numpy的cumsum优化累加计算
+        cum_demands = np.cumsum(corr_demand_set)
+        idx = np.searchsorted(cum_demands, sol_s)
         
-        corr_demand_set = demand_diff_pairs['demand']
-        corr_diff_set = demand_diff_pairs['diff']
-        
-        corr_index, remain = _allocate_s(corr_demand_set, sol_s)
-        reduction_cost = sum([corr_demand_set[j] * corr_diff_set[j] for j in range(len(corr_demand_set))]) \
-                            if corr_index == -1 else \
-                            sum([corr_demand_set[j] * corr_diff_set[j] for j in range(corr_index-1)]) \
-                            + remain * corr_diff_set[corr_index-1]
+        if idx == len(corr_demand_set):
+            reduction_cost = np.sum(corr_demand_set * corr_diff_set)
+        else:
+            if idx == 0:
+                remain = sol_s
+            else:
+                remain = sol_s - cum_demands[idx-1]
+            reduction_cost = np.sum(corr_demand_set[:idx] * corr_diff_set[:idx]) + \
+                           remain * corr_diff_set[idx]
         
         self.second_reduction_dict[scenario_id][type_id] = reduction_cost
-        
         return worst_second_cost - reduction_cost
+
     
 
     def get_type_composition_by_sku(self):
@@ -236,11 +284,58 @@ class ProgressiveHedging():
         return opt_s
 
 
+    # def process_type_group(self, type_group, input_fdc, sol, dual):
+    #     group_results = []
+    #     for type_id in type_group:
+    #         max_demand = max(self.type_sales_dict[type_id][s_id]['total'] for s_id in self.scenario_set)
+    #         s_updates_by_scenario = {}
+    #         x_updates_by_scenario = {}
+    #         for s_id in self.scenario_set:
+    #             opt_s = self.get_optimal_sol_of_lagrange_per_unit(input_fdc, type_id, s_id, sol, dual, max_demand)
+    #             opt_x = 1 if opt_s > 0 else 0
+    #             s_updates_by_scenario[s_id] = opt_s
+    #             x_updates_by_scenario[s_id] = opt_x
+
+    #         agg_s = round(sum(s_updates_by_scenario[s_id] * self.scenario_prob[s_id] for s_id in self.scenario_set))
+    #         agg_x = round(sum(x_updates_by_scenario[s_id] * self.scenario_prob[s_id] for s_id in self.scenario_set))
+    #         result = type_id, s_updates_by_scenario, x_updates_by_scenario, agg_s, agg_x
+    #         group_results.append(result)
+    #     return group_results
+
+
+    # def update_expected_sol_per_iteration(self, input_fdc, sol, dual):
+    #     import concurrent.futures
+    #     import os
+    #     max_workers = os.cpu_count() // 2
+    #     type_list = list(self.unsolved_type_set)
+    #     chunk_size = len(type_list) // max_workers
+    #     type_groups = [type_list[i:i + chunk_size] for i in range(0, len(type_list), chunk_size)]
+        
+    #     update_sol_by_scenario = {s_id: {'S': {}, 'X': {}} for s_id in self.scenario_set}
+    #     update_sol = {'S': {}, 'X': {}}
+        
+    #     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+    #         futures = {executor.submit(self.process_type_group, group, input_fdc, sol, dual): i 
+    #                 for i, group in enumerate(type_groups)}
+            
+    #         for future in concurrent.futures.as_completed(futures):
+    #             group_results = future.result()
+    #             for type_id, s_updates, x_updates, agg_s, agg_x in group_results:
+    #                 update_sol['S'][type_id] = agg_s
+    #                 update_sol['X'][type_id] = agg_x
+    #                 for s_id in self.scenario_set:
+    #                     update_sol_by_scenario[s_id]['S'][type_id] = s_updates[s_id]
+    #                     update_sol_by_scenario[s_id]['X'][type_id] = x_updates[s_id]
+
+    #     update_dual = self.update_dual_value_per_iteration(
+    #         sol=update_sol, sol_by_scenario=update_sol_by_scenario, last_dual=dual)
+    #     return update_sol_by_scenario, update_sol, update_dual
+
+
     def update_expected_sol_per_iteration(self, input_fdc, sol, dual):
         # update the expected solution after each iteration
         update_sol_by_scenario = {s_id: {'S': {}, 'X': {}} for s_id in self.scenario_set}
         update_sol = {'S': {}, 'X': {}}
-
         for type_id in self.unsolved_type_set:
             max_demand = max(self.type_sales_dict[type_id][s_id]['total'] for s_id in self.scenario_set)
             for s_id in self.scenario_set:
@@ -249,6 +344,7 @@ class ProgressiveHedging():
                 update_sol_by_scenario[s_id]['S'][type_id] = opt_s
                 update_sol_by_scenario[s_id]['X'][type_id] = opt_x
             update_sol['S'][type_id] = round(sum(update_sol_by_scenario[s_id]['S'][type_id] * self.scenario_prob[s_id] for s_id in self.scenario_set))
+            # update_sol['S'][type_id] = sum(update_sol_by_scenario[s_id]['S'][type_id] * self.scenario_prob[s_id] for s_id in self.scenario_set)
             update_sol['X'][type_id] = round(sum(update_sol_by_scenario[s_id]['X'][type_id] * self.scenario_prob[s_id] for s_id in self.scenario_set))
         update_dual = self.update_dual_value_per_iteration(sol=update_sol, sol_by_scenario=update_sol_by_scenario, last_dual=dual)
         return update_sol_by_scenario, update_sol, update_dual
@@ -322,7 +418,7 @@ class ProgressiveHedging():
         
         if self.unsolved_type_set:
             for type_id in self.unsolved_type_set:
-                self.solved_type_sol[type_id] = {'S': int(round(cur_sol['S'][type_id])), 'X': 0 if cur_sol['S'][type_id] == 0 else 1}
+                self.solved_type_sol[type_id] = {'S': cur_sol['S'][type_id], 'X': 0 if cur_sol['S'][type_id] == 0 else 1}
 
         self.algorithm_sol_on_sku = self.aggregate_sol_on_sku(input_fdc, sol=self.solved_type_sol)
 

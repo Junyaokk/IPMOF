@@ -149,7 +149,7 @@ class Repooling_Opt():
             for key, val in sol_a['S'].items():
                 avg_sol['S'][key] = round(0.5 * (val + sol_b['S'][key]))
 
-        # avg_cost, _ = self.instance.solver.solve_Model_given_placement_plan(avg_sol)
+        # avg_cost, _ = self.instance.solver.solve_PO_model_given_first_plan(avg_sol)
 
         # avg_gap = (100 * (avg_cost - self.opt_cost) / (self.ub_cost - self.opt_cost)
         #            if self.opt_cost is not None else avg_cost)
